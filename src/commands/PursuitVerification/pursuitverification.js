@@ -134,7 +134,7 @@ export const pursuitVerificationCommand = {
 export async function handlePursuitVerificationButton(interaction) {
     if (!interaction.isButton()) return;
 
-    // STEP 1: Defer FIRST before performing any async tasks or network calls
+    // STEP 1: Defer FIRST before performing any async tasks or network calls to fix 3s timeouts
     try {
         if (!interaction.deferred && !interaction.replied) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -258,12 +258,21 @@ export async function setupPursuitVerificationPanel(client) {
                 .setStyle(ButtonStyle.Primary)
         );
 
-        const messages = await channel.messages.fetch({ limit: 10 });
-        const existing = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0);
-        if (!existing) {
-            await channel.send({ embeds: [verifyEmbed], components: [row] });
-            logger.info('Pursuit Verification panel posted successfully!');
+        // Fetch recent messages and purge any previous panel sent by the bot
+        const messages = await channel.messages.fetch({ limit: 20 });
+        const oldPanels = messages.filter(m => m.author.id === client.user.id && m.embeds.length > 0);
+
+        for (const [, oldMsg] of oldPanels) {
+            try {
+                await oldMsg.delete();
+            } catch (delErr) {
+                logger.warn(`Failed to delete old panel message (${oldMsg.id}): ${delErr.message}`);
+            }
         }
+
+        // Send fresh panel
+        await channel.send({ embeds: [verifyEmbed], components: [row] });
+        logger.info('Pursuit Verification panel resent successfully!');
     } catch (panelErr) {
         logger.error('Error setting up Pursuit Verification panel:', panelErr);
     }
