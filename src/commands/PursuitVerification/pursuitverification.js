@@ -10,7 +10,6 @@ import {
 import axios from 'axios';
 import { getColor } from '../../config/bot.js';
 import { logger } from '../../utils/logger.js';
-import { createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { logEvent, EVENT_TYPES } from '../../services/loggingService.js';
 
@@ -22,9 +21,7 @@ const CONFIG = {
     WEBSITE_API_URL: process.env.WEBSITE_API_URL || 'https://www.interactivemountain.com/api'
 };
 
-// ==========================================
-// PURSUIT VERIFICATION COMMAND & HELPERS
-// ==========================================
+const BUTTON_CUSTOM_ID = 'pv_update_roles';
 
 export const pursuitVerificationCommand = {
     data: new SlashCommandBuilder()
@@ -38,7 +35,6 @@ export const pursuitVerificationCommand = {
         ),
 
     async execute(interaction) {
-        // Immediate deferral to prevent Discord 3-second interaction timeouts
         const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
         if (!deferSuccess) return;
 
@@ -78,22 +74,6 @@ export const pursuitVerificationCommand = {
                 } catch (tErr) {
                     logger.warn(`Could not fetch Roblox headshot for ${robloxId}:${tErr.message}`);
                 }
-            } else {
-                try {
-                    const rblxRes = await axios.post('https://users.roblox.com/v1/usernames/users', {
-                        usernames: [robloxName],
-                        excludeBannedUsers: false
-                    });
-                    if (rblxRes.data?.data?.[0]?.id) {
-                        robloxId = rblxRes.data.data[0].id;
-                        const thumbRes = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${robloxId}&size=150x150&format=Png&isCircular=false`);
-                        if (thumbRes.data?.data?.[0]?.imageUrl) {
-                            robloxAvatar = thumbRes.data.data[0].imageUrl;
-                        }
-                    }
-                } catch (rErr) {
-                    logger.warn(`Could not query Roblox API for username ${robloxName}:${rErr.message}`);
-                }
             }
 
             const profileUrl = (robloxId && !isNaN(robloxId))
@@ -132,22 +112,18 @@ export const pursuitVerificationCommand = {
 };
 
 export async function handlePursuitVerificationButton(interaction) {
-    if (!interaction.isButton()) return;
+    if (!interaction.isButton() || interaction.customId !== BUTTON_CUSTOM_ID) return;
 
-    // STEP 1: Defer FIRST before performing network requests
     try {
-        if (!interaction.deferred && !interaction.replied) {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (deferErr) {
-        logger.warn('Failed to defer verification button interaction:', deferErr);
+        logger.error('Failed to defer verification button interaction:', deferErr);
         return;
     }
 
     const userId = interaction.user.id;
 
     try {
-        // STEP 2: Query Website API
         const response = await axios.get(`${CONFIG.WEBSITE_API_URL}/member/discord/${userId}`, {
             headers: { 'x-sf-api-key': CONFIG.API_KEY },
             timeout: 5000
@@ -164,7 +140,6 @@ export async function handlePursuitVerificationButton(interaction) {
         const member = interaction.member;
         let nicknameUpdated = true;
 
-        // STEP 3: Update Server Nickname
         try {
             await member.setNickname(robloxName);
         } catch (nickErr) {
@@ -172,7 +147,6 @@ export async function handlePursuitVerificationButton(interaction) {
             logger.warn(`Could not change nickname for ${interaction.user.tag}: ${nickErr.message}`);
         }
 
-        // STEP 4: Assign Role
         if (CONFIG.VERIFIED_ROLE_ID) {
             try {
                 await member.roles.add(CONFIG.VERIFIED_ROLE_ID);
@@ -181,7 +155,6 @@ export async function handlePursuitVerificationButton(interaction) {
             }
         }
 
-        // STEP 5: Send Confirmation Response
         if (nicknameUpdated) {
             await interaction.editReply({
                 content: `✅ **Pursuit Verified!** Your server nickname has been updated to **${robloxName}** and your verified role has been assigned!`
@@ -192,7 +165,6 @@ export async function handlePursuitVerificationButton(interaction) {
             });
         }
 
-        // STEP 6: Event Logging
         try {
             await logEvent({
                 client: interaction.client,
@@ -211,12 +183,12 @@ export async function handlePursuitVerificationButton(interaction) {
     } catch (error) {
         if (error.response?.status === 404) {
             await interaction.editReply({
-                content: '❌ **Account Not Found!** Please go to `interactivemountain.com/settings` and complete the Pursuit Verification bio step first.'
+                content: '❌ **Account Not Found!** Please go to `interactivemountain.com/settings` and complete the Pursuit Verification step first.'
             });
         } else {
             logger.error('Pursuit Verification Button API Error:', error);
             await interaction.editReply({
-                content: '⚠️ Pursuit Verification service unavailable. Please try again in a few moments.'
+                content: '⚠️ Pursuit Verification service unavailable or taking too long to respond. Please try again in a moment.'
             });
         }
     }
@@ -260,12 +232,11 @@ export async function setupPursuitVerificationPanel(client) {
                 .setStyle(ButtonStyle.Link)
                 .setURL('https://www.interactivemountain.com/settings'),
             new ButtonBuilder()
-                .setCustomId('update_roles')
+                .setCustomId(BUTTON_CUSTOM_ID)
                 .setLabel('Update Roles')
                 .setStyle(ButtonStyle.Primary)
         );
 
-        // Fetch and purge existing bot panel messages
         try {
             const messages = await channel.messages.fetch({ limit: 20 });
             const oldPanels = messages.filter(m => m.author.id === client.user.id && m.embeds.length > 0);
@@ -277,7 +248,6 @@ export async function setupPursuitVerificationPanel(client) {
             console.warn(`[Pursuit Setup Warning] Could not delete previous panels: ${fetchErr.message}`);
         }
 
-        // Send new panel
         const sentMessage = await channel.send({ embeds: [verifyEmbed], components: [row] });
         console.log(`[Pursuit Setup Success] Verification panel posted! Message ID: ${sentMessage.id}`);
 
