@@ -136,12 +136,20 @@ export const pursuitVerificationCommand = {
 };
 
 export async function handlePursuitVerificationButton(interaction) {
-    const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
-    if (!deferSuccess) return;
+    // 1. Immediately acknowledge interaction to avoid Discord 3-second timeout
+    try {
+        if (!interaction.deferred && !interaction.replied) {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        }
+    } catch (deferErr) {
+        logger.warn('Failed to defer verification button interaction:', deferErr);
+        return;
+    }
 
     const userId = interaction.user.id;
 
     try {
+        // 2. Query Interactive Mountain API
         const response = await axios.get(`${CONFIG.WEBSITE_API_URL}/member/discord/${userId}`, {
             headers: { 'x-sf-api-key': CONFIG.API_KEY },
             timeout: 5000
@@ -150,7 +158,7 @@ export async function handlePursuitVerificationButton(interaction) {
         const robloxName = response.data?.robloxUsername || response.data?.roblox_username || response.data?.username;
 
         if (!robloxName) {
-            return await InteractionHelper.safeEditReply(interaction, {
+            return await interaction.editReply({
                 content: '❌ **Unverified!** You have not completed Pursuit Verification on our website yet.\n\nClick **Link Account** above, copy your verification code, and verify it under `interactivemountain.com/settings`.'
             });
         }
@@ -158,6 +166,7 @@ export async function handlePursuitVerificationButton(interaction) {
         const member = interaction.member;
         let nicknameUpdated = true;
 
+        // 3. Update server nickname
         try {
             await member.setNickname(robloxName);
         } catch (nickErr) {
@@ -165,6 +174,7 @@ export async function handlePursuitVerificationButton(interaction) {
             logger.warn(`Could not change nickname for ${interaction.user.tag}: ${nickErr.message}`);
         }
 
+        // 4. Assign member verified role
         if (CONFIG.VERIFIED_ROLE_ID) {
             try {
                 await member.roles.add(CONFIG.VERIFIED_ROLE_ID);
@@ -173,16 +183,18 @@ export async function handlePursuitVerificationButton(interaction) {
             }
         }
 
+        // 5. Send confirmation message
         if (nicknameUpdated) {
-            await InteractionHelper.safeEditReply(interaction, {
+            await interaction.editReply({
                 content: `✅ **Pursuit Verified!** Your server nickname has been updated to **${robloxName}** and your verified role has been assigned!`
             });
         } else {
-            await InteractionHelper.safeEditReply(interaction, {
+            await interaction.editReply({
                 content: `✅ **Pursuit Verified!** Roles synced for **${robloxName}**! *(Note: Server owner or admin nicknames cannot be modified by bots).*`
             });
         }
 
+        // 6. Log verification event
         try {
             await logEvent({
                 client: interaction.client,
@@ -200,12 +212,12 @@ export async function handlePursuitVerificationButton(interaction) {
 
     } catch (error) {
         if (error.response?.status === 404) {
-            await InteractionHelper.safeEditReply(interaction, {
+            await interaction.editReply({
                 content: '❌ **Account Not Found!** Please go to `interactivemountain.com/settings` and complete the Pursuit Verification bio step first.'
             });
         } else {
             logger.error('Pursuit Verification Button API Error:', error);
-            await InteractionHelper.safeEditReply(interaction, {
+            await interaction.editReply({
                 content: '⚠️ Pursuit Verification service unavailable. Please try again in a few moments.'
             });
         }
