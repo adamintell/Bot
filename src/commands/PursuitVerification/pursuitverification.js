@@ -38,16 +38,15 @@ export const pursuitVerificationCommand = {
         ),
 
     async execute(interaction) {
-        if (CONFIG.STAFF_ROLE_ID && !interaction.member.roles.cache.has(CONFIG.STAFF_ROLE_ID)) {
-            throw createError(
-                'Unauthorized staff command usage',
-                ErrorTypes.PERMISSION,
-                '❌ You do not have permission to use pursuit verification lookup commands.'
-            );
-        }
-
+        // Immediate deferral to prevent 3-second timeout
         const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
         if (!deferSuccess) return;
+
+        if (CONFIG.STAFF_ROLE_ID && !interaction.member.roles.cache.has(CONFIG.STAFF_ROLE_ID)) {
+            return await InteractionHelper.safeEditReply(interaction, {
+                content: '❌ You do not have permission to use pursuit verification lookup commands.'
+            });
+        }
 
         const targetUser = interaction.options.getUser('target');
 
@@ -124,19 +123,18 @@ export const pursuitVerificationCommand = {
                 });
             } else {
                 logger.error('API Pursuit Verification Lookup Error:', error);
-                throw createError(
-                    'Failed to query pursuit verification API',
-                    ErrorTypes.API,
-                    '⚠️ Failed to pull player info from the pursuit verification API.',
-                    { targetUserId: targetUser.id }
-                );
+                await InteractionHelper.safeEditReply(interaction, {
+                    content: '⚠️ Failed to pull player info from the pursuit verification API.'
+                });
             }
         }
     }
 };
 
 export async function handlePursuitVerificationButton(interaction) {
-    // 1. Defers immediately to resolve Discord 3-second button timeouts
+    if (!interaction.isButton()) return;
+
+    // STEP 1: Defer FIRST before performing any async tasks or network calls
     try {
         if (!interaction.deferred && !interaction.replied) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -149,7 +147,7 @@ export async function handlePursuitVerificationButton(interaction) {
     const userId = interaction.user.id;
 
     try {
-        // 2. Query Interactive Mountain API
+        // STEP 2: Query Website API
         const response = await axios.get(`${CONFIG.WEBSITE_API_URL}/member/discord/${userId}`, {
             headers: { 'x-sf-api-key': CONFIG.API_KEY },
             timeout: 5000
@@ -166,7 +164,7 @@ export async function handlePursuitVerificationButton(interaction) {
         const member = interaction.member;
         let nicknameUpdated = true;
 
-        // 3. Update server nickname
+        // STEP 3: Update Guild Nickname
         try {
             await member.setNickname(robloxName);
         } catch (nickErr) {
@@ -174,7 +172,7 @@ export async function handlePursuitVerificationButton(interaction) {
             logger.warn(`Could not change nickname for ${interaction.user.tag}: ${nickErr.message}`);
         }
 
-        // 4. Assign member verified role
+        // STEP 4: Add Role
         if (CONFIG.VERIFIED_ROLE_ID) {
             try {
                 await member.roles.add(CONFIG.VERIFIED_ROLE_ID);
@@ -183,7 +181,7 @@ export async function handlePursuitVerificationButton(interaction) {
             }
         }
 
-        // 5. Send confirmation message
+        // STEP 5: Edit Ephemeral Response
         if (nicknameUpdated) {
             await interaction.editReply({
                 content: `✅ **Pursuit Verified!** Your server nickname has been updated to **${robloxName}** and your verified role has been assigned!`
@@ -194,7 +192,7 @@ export async function handlePursuitVerificationButton(interaction) {
             });
         }
 
-        // 6. Log verification event
+        // STEP 6: Event Logging
         try {
             await logEvent({
                 client: interaction.client,
@@ -234,21 +232,20 @@ export async function setupPursuitVerificationPanel(client) {
 
         const verifyEmbed = new EmbedBuilder()
             .setColor(getColor('info'))
-            .setTitle('Pursuit Verification — Interactive Mountain')
+            .setTitle('Verify your Interactive Mountain account')
             .setDescription(
-                'Linking your Discord and Roblox accounts via Pursuit Verification unlocks member roles, keeps your group ranks in sync, and ties your site purchases to this server.\n\n' +
-                '**How to complete Pursuit Verification**\n' +
-                '1. Go to `interactivemountain.com/settings` and log in.\n' +
-                '2. Generate a verification code under **Link Roblox Account**.\n' +
-                '3. Paste the code into your **Roblox Profile Bio** and click **Verify Bio** on the site.\n' +
-                '4. Click **Update Roles** below to sync your Discord nickname and roles!\n\n' +
-                'Stuck? Open a support ticket and our staff will assist you.'
+                'Linking your Discord unlocks your member roles here, keeps your groups in sync, and ties your purchases and support access to this server.\n\n' +
+                '**How to verify**\n' +
+                '1. Create your account on our website\n' +
+                '2. Link your Discord & Roblox accounts under Settings\n' +
+                '3. Click **Update Roles** below to sync your profile, nickname, and roles\n\n' +
+                'Stuck? Open a support ticket and the team will sort you out.'
             )
-            .setFooter({ text: 'Interactive Mountain™ Pursuit Verification' });
+            .setFooter({ text: 'Interactive Mountain™ account verification' });
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-                .setLabel('Roblox Group')
+                .setLabel('Get started')
                 .setStyle(ButtonStyle.Link)
                 .setURL('https://www.roblox.com/communities/805966808/Mountain-Community'),
             new ButtonBuilder()
