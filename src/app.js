@@ -1,4 +1,4 @@
-﻿import 'dotenv/config';
+import 'dotenv/config';
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import express from 'express';
@@ -18,21 +18,20 @@ import { shutdownMusic } from './services/music/playerHandler.js';
 import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
 
+// Import Pursuit Verification setup function
+import { setupPursuitVerificationPanel } from './commands/PursuitVerification/pursuitverification.js';
+
 class TitanBot extends Client {
   constructor() {
     super({
       intents: [
-        
         GatewayIntentBits.Guilds,                        
         GatewayIntentBits.GuildMembers,                 
-
         GatewayIntentBits.GuildMessages,                
         GatewayIntentBits.GuildMessageReactions,        
-        GatewayIntentBits.MessageContent,               
+        GatewayIntentBits.MessageContent,                
         GatewayIntentBits.DirectMessages,
-
         GatewayIntentBits.GuildVoiceStates,             
-
         GatewayIntentBits.GuildBans,                    
       ],
     });
@@ -46,6 +45,16 @@ class TitanBot extends Client {
     this.cooldowns = new Collection();
     this.db = null;
     this.rest = new REST({ version: '10' }).setToken(config.bot.token);
+
+    // Run Pursuit Verification panel setup once bot achieves ready state
+    this.once('ready', async () => {
+      try {
+        startupLog('Setting up Pursuit Verification panel...');
+        await setupPursuitVerificationPanel(this);
+      } catch (pvErr) {
+        logger.error('Failed to initialize Pursuit Verification panel on startup:', pvErr);
+      }
+    });
   }
 
   async start() {
@@ -65,7 +74,7 @@ class TitanBot extends Client {
         logger.warn('║ ⚠️  DATABASE RUNNING IN DEGRADED MODE                 ║');
         logger.warn('║                                                       ║');
         logger.warn('║ Connection: In-Memory Storage (PostgreSQL unavailable)║');
-        logger.warn('║ Data Persistence: DISABLED - data lost on restart    ║');
+        logger.warn('║ Data Persistence: DISABLED - data lost on restart     ║');
         logger.warn('║ Action Required: Fix PostgreSQL and restart bot      ║');
         logger.warn('╚═══════════════════════════════════════════════════════╝');
         logger.warn('');
@@ -278,8 +287,6 @@ class TitanBot extends Client {
           }
         }
         
-        // Save cleaned counters if any were orphaned
-        // Save cleaned counters if any were orphaned
         if (orphanedCounters.length > 0) {
           await saveServerCounters(this, guildId, validCounters);
           logger.info(`Cleaned up ${orphanedCounters.length} orphaned counter(s) from guild ${guildId} during scheduled update`);
@@ -332,12 +339,11 @@ class TitanBot extends Client {
 
   async shutdown(reason = 'UNKNOWN') {
     shutdownLog(`Bot is shutting down (${reason})...`);
-    logger.info(`\n${'='.repeat(60)}`);
+    logger.info(`\n${'=' .repeat(60)}`);
     logger.info(`🛑 Graceful Shutdown Initiated (${reason})`);
-    logger.info(`${'='.repeat(60)}`);
+    logger.info(`${'=' .repeat(60)}`);
 
     try {
-      
       logger.info('Stopping cron jobs...');
       cron.getTasks().forEach(task => task.stop());
       logger.info('✅ Cron jobs stopped');
@@ -352,8 +358,6 @@ class TitanBot extends Client {
         logger.info('✅ Web server closed');
       }
 
-      // Close database connection
-      // Close database connection
       if (this.db && this.db.db) {
         logger.info('Closing database connection...');
         try {
@@ -372,13 +376,12 @@ class TitanBot extends Client {
           this.destroy();
           logger.info('✅ Discord client destroyed');
         } catch (error) {
-
           logger.warn('Discord client destroy warning (non-critical):', error.message);
         }
       }
 
       logger.info('✅ Graceful shutdown complete');
-  shutdownLog('Bot stopped successfully.');
+      shutdownLog('Bot stopped successfully.');
       process.exit(0);
     } catch (error) {
       logger.error('Error during graceful shutdown:', error);
@@ -395,7 +398,6 @@ try {
     process.on('SIGINT', () => bot.shutdown('SIGINT'));
     
     process.on('uncaughtException', (error) => {
-      // Process state may be corrupt after an uncaught throw; log and shut down cleanly.
       handleTaskError('uncaught_exception', error, { fatal: true });
       bot.shutdown('UNCAUGHT_EXCEPTION');
     });
@@ -410,8 +412,6 @@ try {
         return;
       }
 
-      // A stray rejection is a bug to fix, not a reason to take the bot down.
-      // Log loudly with full context; the central task handler categorizes it.
       handleTaskError('unhandled_rejection', reason instanceof Error ? reason : new Error(String(reason)), {
         errorCode: ErrorCodes.UNHANDLED_REJECTION,
       });
