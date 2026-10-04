@@ -38,7 +38,7 @@ export const pursuitVerificationCommand = {
         ),
 
     async execute(interaction) {
-        // Immediate deferral to prevent 3-second timeout
+        // Immediate deferral to prevent Discord 3-second interaction timeouts
         const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
         if (!deferSuccess) return;
 
@@ -134,7 +134,7 @@ export const pursuitVerificationCommand = {
 export async function handlePursuitVerificationButton(interaction) {
     if (!interaction.isButton()) return;
 
-    // STEP 1: Defer FIRST before performing any async tasks or network calls to fix 3s timeouts
+    // STEP 1: Defer FIRST before performing network requests
     try {
         if (!interaction.deferred && !interaction.replied) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -164,7 +164,7 @@ export async function handlePursuitVerificationButton(interaction) {
         const member = interaction.member;
         let nicknameUpdated = true;
 
-        // STEP 3: Update Guild Nickname
+        // STEP 3: Update Server Nickname
         try {
             await member.setNickname(robloxName);
         } catch (nickErr) {
@@ -172,7 +172,7 @@ export async function handlePursuitVerificationButton(interaction) {
             logger.warn(`Could not change nickname for ${interaction.user.tag}: ${nickErr.message}`);
         }
 
-        // STEP 4: Add Role
+        // STEP 4: Assign Role
         if (CONFIG.VERIFIED_ROLE_ID) {
             try {
                 await member.roles.add(CONFIG.VERIFIED_ROLE_ID);
@@ -181,7 +181,7 @@ export async function handlePursuitVerificationButton(interaction) {
             }
         }
 
-        // STEP 5: Edit Ephemeral Response
+        // STEP 5: Send Confirmation Response
         if (nicknameUpdated) {
             await interaction.editReply({
                 content: `✅ **Pursuit Verified!** Your server nickname has been updated to **${robloxName}** and your verified role has been assigned!`
@@ -223,10 +223,17 @@ export async function handlePursuitVerificationButton(interaction) {
 }
 
 export async function setupPursuitVerificationPanel(client) {
+    const channelId = CONFIG.CHANNEL_ID;
+    console.log(`[Pursuit Setup] Attempting panel setup for Channel ID: ${channelId}`);
+
     try {
-        const channel = await client.channels.fetch(CONFIG.CHANNEL_ID);
+        const channel = await client.channels.fetch(channelId).catch(err => {
+            console.error(`[Pursuit Setup Error] Failed to fetch channel ${channelId}:`, err.message);
+            return null;
+        });
+
         if (!channel) {
-            logger.error(`Pursuit Verification channel ${CONFIG.CHANNEL_ID} not found.`);
+            logger.error(`[Pursuit Setup Error] Channel ${channelId} could not be found or bot lacks access.`);
             return;
         }
 
@@ -258,22 +265,23 @@ export async function setupPursuitVerificationPanel(client) {
                 .setStyle(ButtonStyle.Primary)
         );
 
-        // Fetch recent messages and purge any previous panel sent by the bot
-        const messages = await channel.messages.fetch({ limit: 20 });
-        const oldPanels = messages.filter(m => m.author.id === client.user.id && m.embeds.length > 0);
+        // Fetch and purge existing bot panel messages
+        try {
+            const messages = await channel.messages.fetch({ limit: 20 });
+            const oldPanels = messages.filter(m => m.author.id === client.user.id && m.embeds.length > 0);
 
-        for (const [, oldMsg] of oldPanels) {
-            try {
-                await oldMsg.delete();
-            } catch (delErr) {
-                logger.warn(`Failed to delete old panel message (${oldMsg.id}): ${delErr.message}`);
+            for (const [, oldMsg] of oldPanels) {
+                await oldMsg.delete().catch(() => {});
             }
+        } catch (fetchErr) {
+            console.warn(`[Pursuit Setup Warning] Could not delete previous panels: ${fetchErr.message}`);
         }
 
-        // Send fresh panel
-        await channel.send({ embeds: [verifyEmbed], components: [row] });
-        logger.info('Pursuit Verification panel resent successfully!');
+        // Send new panel
+        const sentMessage = await channel.send({ embeds: [verifyEmbed], components: [row] });
+        console.log(`[Pursuit Setup Success] Verification panel posted! Message ID: ${sentMessage.id}`);
+
     } catch (panelErr) {
-        logger.error('Error setting up Pursuit Verification panel:', panelErr);
+        console.error('[Pursuit Setup Error] Critical error during panel generation:', panelErr);
     }
 }
