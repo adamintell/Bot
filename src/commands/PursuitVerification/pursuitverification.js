@@ -15,11 +15,11 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { logEvent, EVENT_TYPES } from '../../services/loggingService.js';
 
 const CONFIG = {
-    API_KEY: 'MountWare',
-    CHANNEL_ID: '1549884201694924860',
-    VERIFIED_ROLE_ID: '1549884565932216332',
-    STAFF_ROLE_ID: '1549908626527756349',
-    WEBSITE_API_URL: 'https://www.interactivemountain.com/api'
+    API_KEY: process.env.API_KEY || 'MountWare',
+    CHANNEL_ID: process.env.PURSUIT_CHANNEL_ID || '1549884201694924860',
+    VERIFIED_ROLE_ID: process.env.VERIFIED_ROLE_ID || '1549884565932216332',
+    STAFF_ROLE_ID: process.env.STAFF_ROLE_ID || '1549908626527756349',
+    WEBSITE_API_URL: process.env.WEBSITE_API_URL || 'https://www.interactivemountain.com/api'
 };
 
 // ==========================================
@@ -136,7 +136,7 @@ export const pursuitVerificationCommand = {
 };
 
 export async function handlePursuitVerificationButton(interaction) {
-    // 1. Immediately acknowledge interaction to avoid Discord 3-second timeout
+    // 1. Defers immediately to resolve Discord 3-second button timeouts
     try {
         if (!interaction.deferred && !interaction.replied) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
