@@ -5,12 +5,10 @@ import {
     ButtonBuilder, 
     ButtonStyle, 
     MessageFlags, 
-    EmbedBuilder, 
-    ChannelType 
+    EmbedBuilder 
 } from 'discord.js';
 import axios from 'axios';
 import { getColor } from '../../config/bot.js';
-import { createEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { createError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -24,7 +22,11 @@ const CONFIG = {
     WEBSITE_API_URL: 'https://www.interactivemountain.com/api'
 };
 
-export default {
+// ==========================================
+// PURSUIT VERIFICATION COMMAND & HELPERS
+// ==========================================
+
+export const pursuitVerificationCommand = {
     data: new SlashCommandBuilder()
         .setName('pursuitverification')
         .setDescription('Lookup or manage Pursuit Verification account details for a member.')
@@ -36,7 +38,6 @@ export default {
         ),
 
     async execute(interaction) {
-        // Enforce staff role permission check
         if (CONFIG.STAFF_ROLE_ID && !interaction.member.roles.cache.has(CONFIG.STAFF_ROLE_ID)) {
             throw createError(
                 'Unauthorized staff command usage',
@@ -69,7 +70,6 @@ export default {
 
             let robloxAvatar = targetUser.displayAvatarURL({ dynamic: true });
 
-            // Fetch Roblox avatar headshot
             if (robloxId && !isNaN(robloxId)) {
                 try {
                     const thumbRes = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${robloxId}&size=150x150&format=Png&isCircular=false`);
@@ -135,9 +135,6 @@ export default {
     }
 };
 
-/**
- * Handles button interactions for Pursuit Verification role updates.
- */
 export async function handlePursuitVerificationButton(interaction) {
     const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
     if (!deferSuccess) return;
@@ -215,9 +212,6 @@ export async function handlePursuitVerificationButton(interaction) {
     }
 }
 
-/**
- * Setup method to post or update the persistent Pursuit Verification panel in a designated channel.
- */
 export async function setupPursuitVerificationPanel(client) {
     try {
         const channel = await client.channels.fetch(CONFIG.CHANNEL_ID);
