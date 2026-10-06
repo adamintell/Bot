@@ -1,5 +1,4 @@
-import { PermissionFlagsBits, AttachmentBuilder } from 'discord.js';
-import discordTranscripts from 'discord-html-transcripts';
+import { PermissionFlagsBits } from 'discord.js';
 import { createEmbed } from '../../../utils/embeds.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -11,7 +10,7 @@ export default {
   name: 'close_ticket',
 
   async execute(interaction, client) {
-    // 1. Immediately defer to avoid 3s Discord timeout
+    // 1. Immediately defer reply so Discord doesn't timeout
     if (!interaction.deferred && !interaction.replied) {
       await interaction.deferReply().catch(() => {});
     }
@@ -23,47 +22,28 @@ export default {
       return await interaction.editReply({ content: '⚠️ Only support staff can close tickets.' });
     }
 
-    await interaction.editReply({ content: '🔒 Generating transcript and closing ticket in 5 seconds...' });
+    await interaction.editReply({ content: '🔒 Ticket closing and channel deleting in 5 seconds...' });
 
     try {
-      // 2. Generate HTML transcript using safe transcript builder
-      const transcriptAttachment = await discordTranscripts.createTranscript(interaction.channel, {
-        limit: -1,
-        fileName: `${interaction.channel.name}-transcript.html`,
-        saveImages: true,
-        poweredBy: false
-      });
-
-      // 3. Fetch Transcript Log Channel
-      const transcriptChannel = await client.channels.fetch(TICKET_TRANSCRIPT_CHANNEL_ID).catch((err) => {
-        logger.error(`[Transcript Error] Could not fetch transcript channel ${TICKET_TRANSCRIPT_CHANNEL_ID}:`, err);
-        return null;
-      });
+      // 2. Fetch transcript log channel
+      const transcriptChannel = await client.channels.fetch(TICKET_TRANSCRIPT_CHANNEL_ID).catch(() => null);
 
       if (transcriptChannel && transcriptChannel.isTextBased()) {
-        const embed = createEmbed({ 
-          title: `🔒 Ticket Closed & Transcribed`,
+        const closedEmbed = createEmbed({ 
+          title: `🔒 Ticket Closed`,
           description: `**Channel:** \`${interaction.channel.name}\`\n**Closed By:** <@${interaction.user.id}> (${interaction.user.tag})` 
         });
 
-        await transcriptChannel.send({ 
-          embeds: [embed], 
-          files: [transcriptAttachment] 
-        }).catch((err) => {
-          logger.error('[Transcript Error] Failed sending transcript file to channel:', err);
-        });
-      } else {
-        logger.warn(`[Transcript Warning] Channel ID ${TICKET_TRANSCRIPT_CHANNEL_ID} is invalid or not text-based.`);
+        await transcriptChannel.send({ embeds: [closedEmbed] }).catch(() => {});
       }
-
     } catch (err) {
-      logger.error('Error generating transcript on close:', err);
+      logger.error('Error logging closed ticket to transcript channel:', err);
     }
 
-    // 4. Delete channel safely after 5-second countdown
+    // 3. Delete ticket channel after 5 seconds
     setTimeout(async () => {
       await interaction.channel.delete('Ticket Closed by Staff').catch((err) => {
-        logger.error('Failed to delete ticket channel:', err);
+        logger.error('Failed deleting channel:', err);
       });
     }, 5000);
   }
