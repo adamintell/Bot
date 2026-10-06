@@ -47,24 +47,45 @@ export default [
 ];
 
 async function handleTicketCreation(interaction, client, ticketType, title, fields) {
-    await interaction.deferReply({ flags: 64 });
+    // Safely defer reply if not already deferred
+    if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: 64 }).catch(() => {});
+    }
+
     const player = interaction.user;
     const guild = interaction.guild;
 
     try {
         const ticketID = String(ticketCounter++).padStart(4, '0');
-        const channelName = `ticket-${ticketID}-${player.username.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+        const sanitizedUsername = player.username.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
+        const channelName = `ticket-${ticketID}-${sanitizedUsername}`;
+
+        // Build valid permission overwrites
+        const permissionOverwrites = [
+            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: player.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory] },
+            { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels] }
+        ];
+
+        // Safely add Staff Role overwrite if the role exists in the server
+        const staffRole = guild.roles.cache.get(CONFIG.STAFF_ROLE_ID);
+        if (staffRole) {
+            permissionOverwrites.push({
+                id: staffRole.id,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory]
+            });
+        }
+
+        // Validate Ticket Category
+        let categoryId = CONFIG.TICKET_CATEGORY_ID;
+        const categoryExists = guild.channels.cache.has(categoryId);
+        if (!categoryExists) categoryId = null;
 
         const ticketChannel = await guild.channels.create({
             name: channelName,
             type: ChannelType.GuildText,
-            parent: CONFIG.TICKET_CATEGORY_ID || null,
-            permissionOverwrites: [
-                { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-                { id: player.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory] },
-                { id: CONFIG.STAFF_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory] },
-                { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels] }
-            ]
+            parent: categoryId,
+            permissionOverwrites
         });
 
         const controlButtons = new ActionRowBuilder().addComponents(
@@ -84,14 +105,17 @@ async function handleTicketCreation(interaction, client, ticketType, title, fiel
                 { name: 'Claimed By', value: 'Unclaimed', inline: true }
             );
 
+        const pingContent = staffRole ? `<@${player.id}> <@&${staffRole.id}>` : `<@${player.id}>`;
+
         await ticketChannel.send({
-            content: `<@${player.id}> <@&${CONFIG.STAFF_ROLE_ID}>`,
+            content: pingContent,
             embeds: [ticketEmbed],
             components: [controlButtons]
         });
 
+        // Send log entry
         const logChannel = await client.channels.fetch(CONFIG.TICKET_LOG_CHANNEL_ID).catch(() => null);
-        if (logChannel) {
+        if (logChannel && logChannel.isTextBased()) {
             const logEmbed = createEmbed({ title: `🎫 Ticket Opened (#${ticketID})` })
                 .addFields(
                     { name: 'Ticket Number', value: `#${ticketID}`, inline: true },
@@ -99,12 +123,15 @@ async function handleTicketCreation(interaction, client, ticketType, title, fiel
                     { name: 'Channel', value: `<#${ticketChannel.id}>`, inline: true },
                     { name: 'Type', value: ticketType, inline: true }
                 );
-            await logChannel.send({ embeds: [logEmbed] });
+            await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
         }
 
         await interaction.editReply({ content: `✅ Ticket created! Please head to <#${ticketChannel.id}>.` });
+
     } catch (err) {
-        logger.error('Ticket Creation Error:', { error: err.message });
-        await interaction.editReply({ content: `⚠️ Failed to create ticket channel: \`${err.message}\`` });
+        logger.error('Ticket Creation Failed:', err);
+        if (interaction.deferred || interaction.replied) {
+            await interaction.editReply({ content: `⚠️ Failed to create ticket: \`${err.message}\`` }).catch(() => {});
+        }
     }
 }
