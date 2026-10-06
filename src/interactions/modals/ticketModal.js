@@ -47,7 +47,6 @@ export default [
 ];
 
 async function handleTicketCreation(interaction, client, ticketType, title, fields) {
-    // Safely defer reply if not already deferred
     if (!interaction.deferred && !interaction.replied) {
         await interaction.deferReply({ flags: 64 }).catch(() => {});
     }
@@ -60,14 +59,12 @@ async function handleTicketCreation(interaction, client, ticketType, title, fiel
         const sanitizedUsername = player.username.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
         const channelName = `ticket-${ticketID}-${sanitizedUsername}`;
 
-        // Build valid permission overwrites
         const permissionOverwrites = [
             { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
             { id: player.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory] },
             { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels] }
         ];
 
-        // Safely add Staff Role overwrite if the role exists in the server
         const staffRole = guild.roles.cache.get(CONFIG.STAFF_ROLE_ID);
         if (staffRole) {
             permissionOverwrites.push({
@@ -76,10 +73,8 @@ async function handleTicketCreation(interaction, client, ticketType, title, fiel
             });
         }
 
-        // Validate Ticket Category
         let categoryId = CONFIG.TICKET_CATEGORY_ID;
-        const categoryExists = guild.channels.cache.has(categoryId);
-        if (!categoryExists) categoryId = null;
+        if (!guild.channels.cache.has(categoryId)) categoryId = null;
 
         const ticketChannel = await guild.channels.create({
             name: channelName,
@@ -113,7 +108,6 @@ async function handleTicketCreation(interaction, client, ticketType, title, fiel
             components: [controlButtons]
         });
 
-        // Send log entry
         const logChannel = await client.channels.fetch(CONFIG.TICKET_LOG_CHANNEL_ID).catch(() => null);
         if (logChannel && logChannel.isTextBased()) {
             const logEmbed = createEmbed({ title: `🎫 Ticket Opened (#${ticketID})` })
