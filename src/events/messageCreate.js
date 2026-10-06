@@ -1,4 +1,4 @@
-import { Events } from 'discord.js';
+import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getLevelingConfig, getUserLevelData } from '../services/leveling/leveling.js';
 import { addXp } from '../services/leveling/xpSystem.js';
@@ -8,7 +8,7 @@ import { supportsPrefixExecution, executePrefixCommand, resolvePrefixAccessKey }
 import { resolveCommandAlias, resolveSubcommandAlias } from '../config/commands/commandAliases.js';
 import { getPrefixRestriction } from '../config/commands/prefixRestrictions.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
-import { getCommandPrefix, getBotMessage, isBotOwner, isCommandCategoryEnabled, isMaintenanceMode } from '../config/bot.js';
+import { getCommandPrefix, getBotMessage, isBotOwner, isCommandCategoryEnabled, isMaintenanceMode, getColor } from '../config/bot.js';
 import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abuseProtection.js';
 import { createEmbed } from '../utils/embeds.js';
 import { isCommandEnabled } from '../services/commandAccessService.js';
@@ -22,27 +22,120 @@ import {
 const MESSAGE_XP_RATE_LIMIT_ATTEMPTS = 12;
 const MESSAGE_XP_RATE_LIMIT_WINDOW_MS = 10000;
 
+// AutoMod Configuration
+const RESTRICTED_ROLE_CURSE = process.env.RESTRICTED_ROLE_1 || '1556747422376661022';
+const RESTRICTED_ROLE_SLUR = process.env.RESTRICTED_ROLE_2 || '1556747628019064884';
+
+const CURSE_WORDS = ['fuck', 'shit', 'bitch', 'asshole', 'bastard', 'crap', 'dick'];
+const SLUR_WORDS = ['nigger', 'nigga', 'faggot', 'fag', 'retard', 'tranny', 'chink', 'kike', 'spic'];
+
 export default {
   name: Events.MessageCreate,
   async execute(message, client) {
     try {
       if (message.author.bot || !message.guild) return;
 
-      logger.debug(`Message received from ${message.author.tag}: ${message.content}`);
+      logger.debug(`Message received from ${message.author.tag}:${message.content}`);
 
+      // 1. Run AutoMod (Slur & Curse Word Detection)
+      const autoModHandled = await handleAutoMod(message, client);
+      if (autoModHandled) {
+        return; // Stop further execution if message contained prohibited words
+      }
+
+      // 2. Handle Counting Game
       const countingProcessed = await handleCountingGame(message, client);
       if (countingProcessed) {
         return;
       }
 
+      // 3. Handle Prefix Commands
       await handlePrefixCommand(message, client);
 
+      // 4. Handle XP & Leveling
       await handleLeveling(message, client);
     } catch (error) {
       logger.error('Error in messageCreate event:', error);
     }
   }
 };
+
+async function handleAutoMod(message, client) {
+  try {
+    // Ignore staff members with Manage Messages permissions
+    if (message.member?.permissions.has(PermissionFlagsBits.ManageMessages)) {
+      return false;
+    }
+
+    const content = message.content.toLowerCase();
+    const cleanContent = content.replace(/[^a-zA-Z0-9\s]/g, '');
+
+    let assignedRole = null;
+    let reason = '';
+    let detectedType = '';
+
+    // Check for Slurs
+    const containsSlur = SLUR_WORDS.some(word => {
+      const regex = new RegExp(`\\b${word}\\b`, 'i');
+      return regex.test(content) || regex.test(cleanContent);
+    });
+
+    if (containsSlur) {
+      assignedRole = RESTRICTED_ROLE_SLUR;
+      reason = 'Use of prohibited slurs or hate speech.';
+      detectedType = 'Slur / Hate Speech';
+    } 
+    // Check for Curse Words
+    else {
+      const containsCurse = CURSE_WORDS.some(word => {
+        const regex = new RegExp(`\\b${word}\\b`, 'i');
+        return regex.test(content) || regex.test(cleanContent);
+      });
+
+      if (containsCurse) {
+        assignedRole = RESTRICTED_ROLE_CURSE;
+        reason = 'Use of profane or explicit language.';
+        detectedType = 'Profanity / Cursing';
+      }
+    }
+
+    if (assignedRole) {
+      if (message.deletable) {
+        await message.delete().catch(() => {});
+      }
+
+      const member = message.member;
+      if (member && !member.roles.cache.has(assignedRole)) {
+        await member.roles.add(assignedRole).catch(err => {
+          logger.error(`Failed to assign restriction role ${assignedRole} to user${message.author.id}:`, err);
+        });
+      }
+
+      const warnEmbed = createEmbed({
+        title: '⚠️ Restricted Access Applied',
+        description: `Your message was removed for containing **${detectedType}**.\n\nYou have automatically been assigned a chat restriction role.`,
+        color: 'error'
+      }).addFields({ name: 'Reason', value: `\`${reason}\`` });
+
+      const warnMsg = await message.channel.send({
+        content: `<@${message.author.id}>`,
+        embeds: [warnEmbed]
+      });
+
+      setTimeout(() => {
+        warnMsg.delete().catch(() => {});
+      }, 10000);
+
+      logger.info(`[AutoMod] Assigned restricted role ${assignedRole} to ${message.author.tag} (${message.author.id}) for: ${detectedType}`);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    logger.error('Error in handleAutoMod:', error);
+    return false;
+  }
+}
 
 async function handlePrefixCommand(message, client) {
   try {
