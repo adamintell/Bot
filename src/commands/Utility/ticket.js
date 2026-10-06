@@ -30,7 +30,6 @@ export default {
                 });
             }
 
-            // Clean old panel embeds
             const recentMessages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
             if (recentMessages) {
                 const oldPanels = recentMessages.filter(m => (m.author.id === client.user.id || m.author.bot) && m.components.length > 0);
