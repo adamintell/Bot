@@ -12,53 +12,94 @@ export default [
     {
         name: 'claim_ticket',
         async execute(interaction, client) {
+            // 1. Immediately defer to stop Discord 3-second timeout
+            await interaction.deferReply();
+
             const isStaff = interaction.member.roles.cache.has(CONFIG.STAFF_ROLE_ID) || interaction.member.permissions.has(PermissionFlagsBits.Administrator);
-            if (!isStaff) return await interaction.reply({ content: '⚠️ Only support staff can claim tickets.', flags: 64 });
+            if (!isStaff) {
+                return await interaction.editReply({ content: '⚠️ Only support staff can claim tickets.' });
+            }
 
-            const initialMsg = (await interaction.channel.messages.fetch({ limit: 10 })).find(m => m.embeds.length > 0 && m.author.id === client.user.id);
-            if (!initialMsg) return await interaction.reply({ content: '⚠️ Could not find ticket embed.', flags: 64 });
+            try {
+                const messages = await interaction.channel.messages.fetch({ limit: 10 });
+                const initialMsg = messages.find(m => m.embeds.length > 0 && m.author.id === client.user.id);
+                
+                if (!initialMsg) {
+                    return await interaction.editReply({ content: '⚠️ Could not find ticket embed.' });
+                }
 
-            const updatedEmbed = EmbedBuilder.from(initialMsg.embeds[0]);
-            const fields = updatedEmbed.data.fields || [];
-            const idx = fields.findIndex(f => f.name === 'Claimed By');
+                const updatedEmbed = EmbedBuilder.from(initialMsg.embeds[0]);
+                const fields = updatedEmbed.data.fields || [];
+                const idx = fields.findIndex(f => f.name === 'Claimed By');
 
-            if (idx !== -1) fields[idx].value = `<@${interaction.user.id}> (${interaction.user.tag})`;
-            else fields.push({ name: 'Claimed By', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true });
+                if (idx !== -1) {
+                    fields[idx].value = `<@${interaction.user.id}> (${interaction.user.tag})`;
+                } else {
+                    fields.push({ name: 'Claimed By', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true });
+                }
 
-            updatedEmbed.setFields(fields);
-            await initialMsg.edit({ embeds: [updatedEmbed] });
-            await interaction.reply({ content: `✅ <@${interaction.user.id}> has claimed this ticket!` });
+                updatedEmbed.setFields(fields);
+                await initialMsg.edit({ embeds: [updatedEmbed] });
+
+                await interaction.editReply({ content: `✅ <@${interaction.user.id}> has claimed this ticket!` });
+            } catch (err) {
+                logger.error('Claim Ticket Error:', err);
+                await interaction.editReply({ content: '❌ Failed to claim ticket.' });
+            }
         }
     },
     {
         name: 'unclaim_ticket',
         async execute(interaction, client) {
+            // 1. Immediately defer
+            await interaction.deferReply();
+
             const isStaff = interaction.member.roles.cache.has(CONFIG.STAFF_ROLE_ID) || interaction.member.permissions.has(PermissionFlagsBits.Administrator);
-            if (!isStaff) return await interaction.reply({ content: '⚠️️ Only support staff can unclaim tickets.', flags: 64 });
+            if (!isStaff) {
+                return await interaction.editReply({ content: '⚠️ Only support staff can unclaim tickets.' });
+            }
 
-            const initialMsg = (await interaction.channel.messages.fetch({ limit: 10 })).find(m => m.embeds.length > 0 && m.author.id === client.user.id);
-            if (!initialMsg) return await interaction.reply({ content: '⚠️ Could not find ticket embed.', flags: 64 });
+            try {
+                const messages = await interaction.channel.messages.fetch({ limit: 10 });
+                const initialMsg = messages.find(m => m.embeds.length > 0 && m.author.id === client.user.id);
 
-            const updatedEmbed = EmbedBuilder.from(initialMsg.embeds[0]);
-            const fields = updatedEmbed.data.fields || [];
-            const idx = fields.findIndex(f => f.name === 'Claimed By');
+                if (!initialMsg) {
+                    return await interaction.editReply({ content: '⚠️ Could not find ticket embed.' });
+                }
 
-            if (idx !== -1) fields[idx].value = 'Unclaimed';
+                const updatedEmbed = EmbedBuilder.from(initialMsg.embeds[0]);
+                const fields = updatedEmbed.data.fields || [];
+                const idx = fields.findIndex(f => f.name === 'Claimed By');
 
-            updatedEmbed.setFields(fields);
-            await initialMsg.edit({ embeds: [updatedEmbed] });
-            await interaction.reply({ content: `🔄 <@${interaction.user.id}> unclaimed this ticket.` });
+                if (idx !== -1) {
+                    fields[idx].value = 'Unclaimed';
+                }
+
+                updatedEmbed.setFields(fields);
+                await initialMsg.edit({ embeds: [updatedEmbed] });
+
+                await interaction.editReply({ content: `🔄 <@${interaction.user.id}> unclaimed this ticket.` });
+            } catch (err) {
+                logger.error('Unclaim Ticket Error:', err);
+                await interaction.editReply({ content: '❌ Failed to unclaim ticket.' });
+            }
         }
     },
     {
         name: 'close_ticket',
         async execute(interaction, client) {
-            const isStaff = interaction.member.roles.cache.has(CONFIG.STAFF_ROLE_ID) || interaction.member.permissions.has(PermissionFlagsBits.Administrator);
-            if (!isStaff) return await interaction.reply({ content: '⚠️ Only support staff can close tickets.', flags: 64 });
+            // 1. Immediately defer reply
+            await interaction.deferReply();
 
-            await interaction.reply({ content: '🔒 Saving transcript and closing channel in 5 seconds...' });
+            const isStaff = interaction.member.roles.cache.has(CONFIG.STAFF_ROLE_ID) || interaction.member.permissions.has(PermissionFlagsBits.Administrator);
+            if (!isStaff) {
+                return await interaction.editReply({ content: '⚠️ Only support staff can close tickets.' });
+            }
+
+            await interaction.editReply({ content: '🔒 Saving HTML transcript and deleting channel in 5 seconds...' });
 
             try {
+                // Generate transcript attachment
                 const attachment = await discordTranscripts.createTranscript(interaction.channel, {
                     limit: -1,
                     fileName: `${interaction.channel.name}-transcript.html`,
@@ -67,18 +108,21 @@ export default [
                 });
 
                 const transcriptChannel = await client.channels.fetch(CONFIG.TICKET_TRANSCRIPT_CHANNEL_ID).catch(() => null);
-                if (transcriptChannel) {
-                    const embed = createEmbed({ title: `🔒 Ticket Closed & Transcribed (${interaction.channel.name})` })
-                        .addFields(
-                            { name: 'Closed By', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
-                            { name: 'Ticket Channel', value: interaction.channel.name, inline: true }
-                        );
+                if (transcriptChannel && transcriptChannel.isTextBased()) {
+                    const embed = createEmbed({ 
+                        title: `🔒 Ticket Closed & Transcribed (${interaction.channel.name})` 
+                    }).addFields(
+                        { name: 'Closed By', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
+                        { name: 'Ticket Channel', value: interaction.channel.name, inline: true }
+                    );
+
                     await transcriptChannel.send({ embeds: [embed], files: [attachment] });
                 }
             } catch (err) {
-                logger.error('Transcript Error:', { error: err.message });
+                logger.error('Transcript Error on Ticket Close:', err);
             }
 
+            // Delete channel after 5 seconds
             setTimeout(async () => {
                 await interaction.channel.delete().catch(() => {});
             }, 5000);
