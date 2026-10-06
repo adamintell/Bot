@@ -37,28 +37,62 @@ export default {
 
       logger.debug(`Message received from ${message.author.tag}:${message.content}`);
 
-      // 1. Run AutoMod (Slur & Curse Word Detection)
+      // 1. Live Ticket Transcript Logging
+      await handleTranscriptLogging(message, client);
+
+      // 2. Run AutoMod (Slur & Curse Word Detection)
       const autoModHandled = await handleAutoMod(message, client);
       if (autoModHandled) {
         return; // Stop further execution if message contained prohibited words
       }
 
-      // 2. Handle Counting Game
+      // 3. Handle Counting Game
       const countingProcessed = await handleCountingGame(message, client);
       if (countingProcessed) {
         return;
       }
 
-      // 3. Handle Prefix Commands
+      // 4. Handle Prefix Commands
       await handlePrefixCommand(message, client);
 
-      // 4. Handle XP & Leveling
+      // 5. Handle XP & Leveling
       await handleLeveling(message, client);
     } catch (error) {
       logger.error('Error in messageCreate event:', error);
     }
   }
 };
+
+async function handleTranscriptLogging(message, client) {
+  if (!message.channel.name || !message.channel.name.startsWith('ticket-')) return;
+
+  const TICKET_TRANSCRIPT_CHANNEL_ID = process.env.TICKET_TRANSCRIPT_CHANNEL_ID || '1549553157456007208';
+
+  try {
+    const transcriptChannel = await client.channels.fetch(TICKET_TRANSCRIPT_CHANNEL_ID).catch(() => null);
+    if (!transcriptChannel || !transcriptChannel.isTextBased()) return;
+
+    const logEmbed = createEmbed({
+      description: message.content || '*[Attachment/Embed]*'
+    })
+      .setAuthor({ 
+        name: `${message.author.tag} (${message.author.id})`, 
+        iconURL: message.author.displayAvatarURL() 
+      })
+      .setFooter({ text: `Ticket: #${message.channel.name}` })
+      .setTimestamp();
+
+    const payload = { embeds: [logEmbed] };
+
+    if (message.attachments.size > 0) {
+      payload.files = message.attachments.map(a => a.url);
+    }
+
+    await transcriptChannel.send(payload).catch(() => {});
+  } catch (err) {
+    logger.error('Error sending message to transcript log channel:', err);
+  }
+}
 
 async function handleAutoMod(message, client) {
   try {
