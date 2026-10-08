@@ -1,4 +1,5 @@
 import { EmbedBuilder, ActionRowBuilder } from 'discord.js';
+import { logger } from '../../../utils/logger.js';
 
 export default {
   customId: 'app_reject',
@@ -9,16 +10,21 @@ export default {
       await interaction.deferUpdate().catch(() => {});
     }
 
-    const targetUserId = args[0];
+    const targetUserId = args[0] || interaction.customId.split(':')[1] || interaction.customId.split('_').pop();
     const originalEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
+    const fields = originalEmbed.data.fields || [];
 
-    // Extract Position Title from Embed Title or Field
+    const getFieldValue = (name) => {
+      const f = fields.find(field => field.name.toLowerCase().includes(name.toLowerCase()));
+      return f ? f.value : 'N/A';
+    };
+
     let positionName = originalEmbed.data.title?.replace('📥 New Application:', '').trim();
-    if (!positionName) {
-      const positionField = originalEmbed.data.fields.find(f => f.name === 'Position Applied');
-      positionName = positionField ? positionField.value.replace(/[*`]/g, '').trim() : 'Trial Moderator';
+    if (!positionName || positionName === originalEmbed.data.title) {
+      positionName = getFieldValue('Position Applied').replace(/[*`]/g, '').trim() || 'Trial Moderator';
     }
 
+    // Update Embed in Staff Review Channel
     originalEmbed.setColor('#ED4245');
     originalEmbed.addFields({ name: 'Review Status', value: `❌ **REJECTED** by <@${interaction.user.id}>` });
 
@@ -27,22 +33,34 @@ export default {
 
     await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
 
-    const applicantMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+    // Fetch User
+    const user = await client.users.fetch(targetUserId).catch(() => null);
 
-    if (applicantMember) {
-      // Send Personal DM Notification
-      const dmEmbed = new EmbedBuilder()
+    // Send Detailed Results Direct Message
+    if (user) {
+      const resultDmEmbed = new EmbedBuilder()
         .setColor('#ED4245')
-        .setTitle(`Application Status Update: ${positionName}`)
+        .setTitle(`Application Results: REJECTED (${positionName})`)
         .setDescription(
-          `Hello <@${applicantMember.id}>,\n\n` +
-          `Thank you for applying for **${positionName}** at **Pursuit Studios**.\n\n` +
-          `Unfortunately, your application was not accepted at this time. We encourage you to re-apply in the future when positions open back up.`
+          `Hello <@${user.id}>,\n\n` +
+          `Thank you for taking the time to apply for **${positionName}** at **Pursuit Studios**.\n\n` +
+          `Unfortunately, your application was **NOT ACCEPTED** at this time. Here is a copy of your submitted application responses for your records:`
         )
-        .setFooter({ text: 'Pursuit Studios Management' })
+        .addFields(
+          { name: 'Position Applied', value: `**${positionName}**`, inline: true },
+          { name: 'Roblox Profile / User', value: getFieldValue('Roblox'), inline: true },
+          { name: 'Availability & Timezone', value: getFieldValue('Availability') },
+          { name: 'Experience & Skills', value: getFieldValue('Experience') },
+          { name: 'Why Hire You?', value: getFieldValue('Why Hire') }
+        )
+        .setFooter({ text: 'Pursuit Studios Staff Team' })
         .setTimestamp();
 
-      await applicantMember.send({ embeds: [dmEmbed] }).catch(() => {});
+      await user.send({ embeds: [resultDmEmbed] }).then(() => {
+        logger.info(`[App Review] Sent rejection results DM to ${user.tag} (${user.id})`);
+      }).catch((err) => {
+        logger.warn(`[App Review] Could not DM ${user.tag} (${user.id}): ${err.message}`);
+      });
     }
   }
 };
