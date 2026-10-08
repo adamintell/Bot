@@ -43,6 +43,7 @@ export default {
       )
       .setTimestamp();
 
+    // Attach User ID strictly in custom ID
     const actionRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`app_approve:${interaction.user.id}`)
