@@ -24,6 +24,9 @@ import fetch from 'node-fetch';
 // ==========================================
 const CONFIG = {
     BOT_TOKEN: process.env.BOT_TOKEN || process.env.DISCORD_TOKEN,
+    CLIENT_ID: process.env.CLIENT_ID || '1318042571216551978', // Replace with Bot Client ID if not in env
+    GUILD_ID: process.env.GUILD_ID || '', // Adding Guild ID forces instant command registration
+
     APPLY_CHANNEL_ID: process.env.APPLY_CHANNEL_ID || '1551220007051206737',
     APP_LOG_CHANNEL_ID: process.env.APP_LOG_CHANNEL_ID || '1551217750498607204', 
     REVIEWER_ROLE_ID: process.env.REVIEWER_ROLE_ID || '1551216636235747468',
@@ -50,7 +53,7 @@ const CONFIG = {
     }
 };
 
-// SubSync Priorities & Aliases from Roblox Lua Script
+// SubSync Priorities & Aliases
 const TIER_PRIORITY = {
     Lifetime: 100,
     Founder: 90,
@@ -157,10 +160,22 @@ const commands = [
 async function registerSlashCommands() {
     try {
         const rest = new REST({ version: '10' }).setToken(CONFIG.BOT_TOKEN);
-        console.log('🔄 Deploying application (/) commands...');
+        const appId = client.user?.id || CONFIG.CLIENT_ID;
 
+        console.log(`🔄 Deploying ${commands.length} application (/) commands for Application ID:${appId}...`);
+
+        // Instant Guild Registration (if GUILD_ID is provided)
+        if (CONFIG.GUILD_ID) {
+            await rest.put(
+                Routes.applicationGuildCommands(appId, CONFIG.GUILD_ID),
+                { body: commands }
+            );
+            console.log(`⚡ Instantly registered commands in Guild ID: ${CONFIG.GUILD_ID}`);
+        }
+
+        // Global Registration
         await rest.put(
-            Routes.applicationCommands(client.user.id),
+            Routes.applicationCommands(appId),
             { body: commands }
         );
 
@@ -176,7 +191,6 @@ async function sendApplicationPanel() {
         const channel = await client.channels.fetch(CONFIG.APPLY_CHANNEL_ID).catch(() => null);
         if (!channel || !channel.isTextBased()) return console.error('[Error] Application channel not found.');
 
-        // Delete previous messages sent by the bot in the channel
         const recentMessages = await channel.messages.fetch({ limit: 10 }).catch(() => null);
         if (recentMessages) {
             const botMsgs = recentMessages.filter(m => m.author.id === client.user.id);
@@ -185,7 +199,6 @@ async function sendApplicationPanel() {
             }
         }
 
-        // Create Panel
         const embed = new EmbedBuilder()
             .setColor(0x3498db)
             .setTitle('Pursuit Studios Staff Applications')
@@ -234,12 +247,10 @@ client.on(Events.MessageCreate, async (message) => {
     let assignedRole = null;
     let type = '';
 
-    // Check for Slurs
     if (SLUR_WORDS.some(w => new RegExp(`\\b${w}\\b`, 'i').test(content) || new RegExp(`\\b${w}\\b`, 'i').test(cleanContent))) {
         assignedRole = CONFIG.RESTRICTED_ROLE_SLUR;
         type = 'Slur / Hate Speech';
     } 
-    // Check for Cursing
     else if (CURSE_WORDS.some(w => new RegExp(`\\b${w}\\b`, 'i').test(content) || new RegExp(`\\b${w}\\b`, 'i').test(cleanContent))) {
         assignedRole = CONFIG.RESTRICTED_ROLE_CURSE;
         type = 'Profanity / Cursing';
@@ -265,13 +276,10 @@ client.on(Events.MessageCreate, async (message) => {
 });
 
 // ==========================================
-// INTERACTION HANDLER (Commands, Applications, Modals)
+// INTERACTION HANDLER
 // ==========================================
 client.on(Events.InteractionCreate, async (interaction) => {
     try {
-        // --------------------------------------------------
-        // A. SLASH COMMAND HANDLERS
-        // --------------------------------------------------
         if (interaction.isChatInputCommand()) {
             
             // 1. /vipcheck
@@ -360,7 +368,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
                 }
 
-                // Check Role Permission
                 const hasRole = interaction.member.roles.cache.has(CONFIG.SUB_ADMIN_ROLE_ID);
                 if (!hasRole && !interaction.member.permissions.has('Administrator')) {
                     return await interaction.editReply({
@@ -419,10 +426,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
         }
 
-        // --------------------------------------------------
-        // B. APPLICATION SYSTEM HANDLERS
-        // --------------------------------------------------
-        // 1. Click "Apply for Staff" Button
+        // Application Button Handlers
         if (interaction.isButton() && interaction.customId === 'start_app') {
             const hasRole = CONFIG.ALLOWED_ROLES.some(r => interaction.member?.roles.cache.has(r));
             if (!hasRole) {
@@ -450,7 +454,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             });
         }
 
-        // 2. Position Selected from Dropdown
         if (interaction.isStringSelectMenu() && interaction.customId === 'select_pos') {
             const selectedPos = interaction.values[0];
             activeDrafts.set(interaction.user.id, selectedPos);
@@ -492,7 +495,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return await interaction.showModal(modal);
         }
 
-        // 3. Modal Submission
         if (interaction.isModalSubmit() && interaction.customId === 'app_modal') {
             const position = activeDrafts.get(interaction.user.id) || 'Trial Moderator';
             const roblox = interaction.fields.getTextInputValue('app_roblox');
@@ -531,7 +533,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return await interaction.reply({ content: '✅ Your application has been submitted!', flags: MessageFlags.Ephemeral });
         }
 
-        // 4. Approval / Rejection Buttons
         if (interaction.isButton() && (interaction.customId.startsWith('approve_') || interaction.customId.startsWith('reject_'))) {
             const isApproved = interaction.customId.startsWith('approve_');
             const targetId = interaction.customId.split('_')[1];
@@ -543,13 +544,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
             embed.setColor(isApproved ? 0x2ecc71 : 0xe74c3c);
             embed.addFields({ name: 'Status', value: isApproved ? `✅ Approved by <@${interaction.user.id}>` : `❌ Rejected by <@${interaction.user.id}>` });
 
-            // Disable buttons
             const row = ActionRowBuilder.from(interaction.message.components[0]);
             row.components.forEach(b => b.setDisabled(true));
 
             await interaction.update({ embeds: [embed], components: [row] });
 
-            // Assign roles if approved
             const member = await interaction.guild.members.fetch(targetId).catch(() => null);
             if (member && isApproved) {
                 const targetRole = CONFIG.ROLE_IDS[posName];
@@ -557,7 +556,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 if (CONFIG.COMMUNITY_STAFF_ROLE_ID) await member.roles.add(CONFIG.COMMUNITY_STAFF_ROLE_ID).catch(() => {});
             }
 
-            // Normal Plain-Text DM to Applicant
             const targetUser = await client.users.fetch(targetId).catch(() => null);
             if (targetUser) {
                 if (isApproved) {
