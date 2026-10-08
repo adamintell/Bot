@@ -24,14 +24,14 @@ import fetch from 'node-fetch';
 // ==========================================
 const CONFIG = {
     BOT_TOKEN: process.env.BOT_TOKEN || process.env.DISCORD_TOKEN,
-    CLIENT_ID: process.env.CLIENT_ID || '1318042571216551978', // Replace with Bot Client ID if not in env
-    GUILD_ID: process.env.GUILD_ID || '', // Adding Guild ID forces instant command registration
+    CLIENT_ID: process.env.CLIENT_ID || '1318042571216551978',
+    GUILD_ID: process.env.GUILD_ID || '', 
 
     APPLY_CHANNEL_ID: process.env.APPLY_CHANNEL_ID || '1551220007051206737',
     APP_LOG_CHANNEL_ID: process.env.APP_LOG_CHANNEL_ID || '1551217750498607204', 
     REVIEWER_ROLE_ID: process.env.REVIEWER_ROLE_ID || '1551216636235747468',
     COMMUNITY_STAFF_ROLE_ID: process.env.COMMUNITY_STAFF_ROLE_ID || '1541012779358756945',
-    SUB_ADMIN_ROLE_ID: process.env.SUB_ADMIN_ROLE_ID || '1549163772357124238',
+    SUB_ADMIN_ROLE_ID: process.env.SUB_ADMIN_ROLE_ID || '1549163772357124238', // Restricted Role ID
     
     // Website API Configuration
     TARGET_WEBSITE: process.env.TARGET_WEBSITE || 'https://www.interactivemountain.com',
@@ -164,7 +164,6 @@ async function registerSlashCommands() {
 
         console.log(`🔄 Deploying ${commands.length} application (/) commands for Application ID:${appId}...`);
 
-        // Instant Guild Registration (if GUILD_ID is provided)
         if (CONFIG.GUILD_ID) {
             await rest.put(
                 Routes.applicationGuildCommands(appId, CONFIG.GUILD_ID),
@@ -173,7 +172,6 @@ async function registerSlashCommands() {
             console.log(`⚡ Instantly registered commands in Guild ID: ${CONFIG.GUILD_ID}`);
         }
 
-        // Global Registration
         await rest.put(
             Routes.applicationCommands(appId),
             { body: commands }
@@ -368,6 +366,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
                 }
 
+                // Check Role Permission (Requires Role ID 1549163772357124238 or Admin)
                 const hasRole = interaction.member.roles.cache.has(CONFIG.SUB_ADMIN_ROLE_ID);
                 if (!hasRole && !interaction.member.permissions.has('Administrator')) {
                     return await interaction.editReply({
