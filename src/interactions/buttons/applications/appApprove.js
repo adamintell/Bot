@@ -17,7 +17,6 @@ export default {
       await interaction.deferUpdate().catch(() => {});
     }
 
-    const targetUserId = args[0] || interaction.customId.split(':')[1] || interaction.customId.split('_').pop();
     const originalEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
     const fields = originalEmbed.data.fields || [];
 
@@ -27,12 +26,20 @@ export default {
       return f ? f.value : 'N/A';
     };
 
+    // Extract Target User ID using Regex directly from embed or args
+    let targetUserId = args[0] || interaction.customId.split(':')[1] || interaction.customId.split('_').pop();
+    if (!targetUserId || targetUserId.length < 17) {
+      const applicantField = getFieldValue('Applicant');
+      const idMatch = applicantField.match(/\d{17,19}/);
+      if (idMatch) targetUserId = idMatch[0];
+    }
+
     let positionName = originalEmbed.data.title?.replace('📥 New Application:', '').trim();
     if (!positionName || positionName === originalEmbed.data.title) {
       positionName = getFieldValue('Position Applied').replace(/[*`]/g, '').trim() || 'Trial Moderator';
     }
 
-    // Update Embed in Staff Review Channel
+    // Update Staff Review Embed
     originalEmbed.setColor('#57F287');
     originalEmbed.addFields({ name: 'Review Status', value: `✅ **APPROVED** by <@${interaction.user.id}>` });
 
@@ -41,6 +48,10 @@ export default {
 
     await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
 
+    if (!targetUserId) {
+      return logger.error('[App Review] Could not determine target user ID to send approval DM.');
+    }
+
     // Fetch User & Member
     const user = await client.users.fetch(targetUserId).catch(() => null);
     const member = await interaction.guild.members.fetch(targetUserId).catch(() => null);
@@ -48,34 +59,31 @@ export default {
     // Assign Server Roles
     if (member) {
       const targetRoleId = CONFIG.ROLE_IDS[positionName];
-      if (targetRoleId) await member.roles.add(targetRoleId).catch(err => logger.error(`Failed assigning role ${targetRoleId}:`, err));
+      if (targetRoleId) await member.roles.add(targetRoleId).catch(() => {});
       if (CONFIG.COMMUNITY_STAFF_ROLE_ID) await member.roles.add(CONFIG.COMMUNITY_STAFF_ROLE_ID).catch(() => {});
     }
 
-    // Send Detailed Results Direct Message
+    // Send DM
     if (user) {
-      const resultDmEmbed = new EmbedBuilder()
+      const dmEmbed = new EmbedBuilder()
         .setColor('#57F287')
-        .setTitle(`🎉 Application Results: APPROVED (${positionName})`)
+        .setTitle(`🎉 Application Approved: ${positionName}`)
         .setDescription(
           `Hello <@${user.id}>,\n\n` +
-          `We are pleased to inform you that your application for **${positionName}** at **Pursuit Studios** has been **ACCEPTED**!\n\n` +
-          `Below is a full summary copy of your submitted application results:`
+          `Your staff application for **${positionName}** at **Pursuit Studios** has been **APPROVED**!\n\n` +
+          `**Submitted Application Summary:**\n` +
+          `• **Roblox User / Profile:** ${getFieldValue('Roblox')}\n` +
+          `• **Availability:** ${getFieldValue('Availability')}\n` +
+          `• **Experience:** ${getFieldValue('Experience')}\n\n` +
+          `Your roles have been granted in the Discord server. Welcome to the team!`
         )
-        .addFields(
-          { name: 'Position Applied', value: `**${positionName}**`, inline: true },
-          { name: 'Roblox Profile / User', value: getFieldValue('Roblox'), inline: true },
-          { name: 'Availability & Timezone', value: getFieldValue('Availability') },
-          { name: 'Experience & Skills', value: getFieldValue('Experience') },
-          { name: 'Why Hire You?', value: getFieldValue('Why Hire') }
-        )
-        .setFooter({ text: 'Pursuit Studios Staff Team • Roles Granted' })
+        .setFooter({ text: 'Pursuit Studios Staff Team' })
         .setTimestamp();
 
-      await user.send({ embeds: [resultDmEmbed] }).then(() => {
-        logger.info(`[App Review] Sent approval results DM to ${user.tag} (${user.id})`);
-      }).catch((err) => {
-        logger.warn(`[App Review] Could not DM ${user.tag} (${user.id}):${err.message}`);
+      await user.send({ embeds: [dmEmbed] }).then(() => {
+        logger.info(`[App Review] Approval DM sent to ${user.tag} (${user.id})`);
+      }).catch(err => {
+        logger.warn(`[App Review] DM blocked for ${user.tag}:${err.message}`);
       });
     }
   }
