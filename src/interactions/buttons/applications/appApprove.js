@@ -18,8 +18,13 @@ export default {
 
     const targetUserId = args[0];
     const originalEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
-    const positionField = originalEmbed.data.fields.find(f => f.name === 'Position Applied');
-    const positionName = positionField ? positionField.value.replace(/[*`]/g, '').trim() : 'Trial Moderator';
+
+    // Extract Position Title from Embed Title or Field
+    let positionName = originalEmbed.data.title?.replace('📥 New Application:', '').trim();
+    if (!positionName) {
+      const positionField = originalEmbed.data.fields.find(f => f.name === 'Position Applied');
+      positionName = positionField ? positionField.value.replace(/[*`]/g, '').trim() : 'Trial Moderator';
+    }
 
     originalEmbed.setColor('#57F287');
     originalEmbed.addFields({ name: 'Review Status', value: `✅ **APPROVED** by <@${interaction.user.id}>` });
@@ -32,14 +37,21 @@ export default {
     const applicantMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
 
     if (applicantMember) {
+      // Assign Roles
       const targetRoleId = CONFIG.ROLE_IDS[positionName];
       if (targetRoleId) await applicantMember.roles.add(targetRoleId).catch(() => {});
       if (CONFIG.COMMUNITY_STAFF_ROLE_ID) await applicantMember.roles.add(CONFIG.COMMUNITY_STAFF_ROLE_ID).catch(() => {});
 
+      // Send Personal DM Notification
       const dmEmbed = new EmbedBuilder()
         .setColor('#57F287')
-        .setTitle(`Application Status: ${positionName}`)
-        .setDescription(`🎉 Congratulations! Your staff application for **${positionName}** has been **APPROVED**.\nYour roles have been updated in the server.`)
+        .setTitle(`🎉 Application Approved: ${positionName}`)
+        .setDescription(
+          `Hello <@${applicantMember.id}>,\n\n` +
+          `Your staff application for **${positionName}** at **Pursuit Studios** has been **APPROVED**!\n\n` +
+          `Your roles have been updated in the server. Welcome to the team!`
+        )
+        .setFooter({ text: 'Pursuit Studios Management' })
         .setTimestamp();
 
       await applicantMember.send({ embeds: [dmEmbed] }).catch(() => {});
